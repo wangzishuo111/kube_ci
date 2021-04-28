@@ -1,0 +1,30 @@
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config-charts
+  namespace: ${BRANCH_NAME}
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: log
+      paths:
+        - "/app/logs/app.log"
+      multiline.pattern: '^[0-9]+'
+      multiline.negate: true
+      multiline.match: after
+      fields:
+        env: ci
+        type: application
+        service: charts-service
+    - type: log
+      paths:
+        - "/app/logs/access.log"
+      fields:
+        env: ci
+        type: access
+        service: charts-service
+    output.logstash:
+      hosts: ["elk-logstash-e87712f9bd80e3cb.elb.cn-north-1.amazonaws.com.cn:5044"]
+      index: ci

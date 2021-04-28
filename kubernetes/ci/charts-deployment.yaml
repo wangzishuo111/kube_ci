@@ -1,0 +1,101 @@
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${BRANCH_NAME}-charts
+  namespace: ${BRANCH_NAME}
+spec:
+  selector:
+    matchLabels:
+      app: charts
+  minReadySeconds: 3
+  progressDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app: charts
+    spec:
+      containers:
+      - name: charts-service
+        image: registry.growingio.com:5000/charts-service:${SERVICE_VERSION}
+        ports:
+        - containerPort: 8081
+          name: charts-port
+        args:
+        - "-J-server"
+        - "-J-XX:+UseG1GC"
+        - "-J-Xmx\$(LIMITS_MEMORY)m"
+        - "-XX:+PreserveFramePointer"
+        - "-DconsulConfig.enabled=true"
+        - "-Ddryad.consul.host=${CONSUL_HOST_NEW}"
+        - "-Ddryad.consul.port=8500"
+        - "-Ddryad.namespace=charts-service"
+        - "-Ddryad.group=${BRANCH_NAME}"
+        - "-Ddryad.consul.username=charts-service"
+        - "-Ddryad.consul.password='${CONSUL_PASSWORD}'"
+        - "-Dredis.cache.host=${BRANCH_NAME}-redis"
+        - "-Dredis.cache.port=6379"
+        - "-Dredis.download.host=${BRANCH_NAME}-redis"
+        - "-Dredis.download.port=6379"
+        - "-Daccount.host=http://${BRANCH_NAME}-accounts"
+        - "-Dgateway.host=http://${BRANCH_NAME}-gateway"
+        - "-Dwebsocket.hostname=ws://${BRANCH_NAME}-gateway"
+        readinessProbe:
+          failureThreshold: 2
+          httpGet:
+            path: /healthy-check
+            port: charts-port
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          timeoutSeconds: 2
+        livenessProbe:
+          failureThreshold: 2
+          httpGet:
+            path: /healthy-check
+            port: charts-port
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 2
+        resources:
+          requests:
+            cpu: 100m
+            memory: 819Mi
+          limits:
+            cpu: 500m
+            memory: 2048Mi
+        volumeMounts:
+        - name: local-jdk
+          mountPath: /apps/svr/java
+        - name: app-logs
+          mountPath: /app/logs
+      - name: filebeat
+        image: k8s-registry.growingio.com/beats/filebeat:6.3.2
+        args: [
+          "-c", "/etc/filebeat.yml",
+          "-e",
+        ]
+        volumeMounts:
+        - name: app-logs
+          mountPath: /app/logs
+        - name: config
+          mountPath: /etc/filebeat.yml
+          readOnly: true
+          subPath: filebeat.yml
+        resources:
+          requests:
+            cpu: 10m
+            memory: 20Mi
+          limits:
+            cpu: 100m
+            memory: 200Mi
+      volumes:
+      - name: local-jdk
+        hostPath:
+          path: /usr/java/jdk1.8.0_121
+      - name: config
+        configMap:
+          defaultMode: 0755
+          name: filebeat-config-charts
+      - name: app-logs
+        emptyDir: {}

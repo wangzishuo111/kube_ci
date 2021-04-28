@@ -1,0 +1,39 @@
+#!/usr/bin/env groovy
+
+import java.text.SimpleDateFormat
+
+
+node ('jnlp-slave') {
+  env.BUILD_STATUS = "FAILED"
+  try {
+    stage('clone'){
+      env.LAST_STAGE_NAME = env.STAGE_NAME
+      checkout scm
+      env.REVISION_ID = sh(returnStdout: true, script: "git log -n 1 --pretty=format:'%h'").trim()
+      def dateFormat = new SimpleDateFormat("yyyy-MM-dd-HH").format(new Date())
+      env.SERVICE_VERSION = "$BRANCH_NAME-$dateFormat-$REVISION_ID"
+    }
+    stage('build') {
+      env.LAST_STAGE_NAME = env.STAGE_NAME
+      sh '''cd kubernetes && bash build.sh'''
+    }
+    stage('deploy') {
+      env.LAST_STAGE_NAME = env.STAGE_NAME
+      sh '''cd kubernetes/ci && bash deploy.sh'''
+    }
+    env.BUILD_STATUS = "SUCCESSFUL"
+  } finally {
+    if (env.BUILD_STATUS == "FAILED") {
+      env.FAILURE_MESSAGE = "\n      after failure: "+env.LAST_STAGE_NAME
+      sh '''curl 'https://oapi.dingtalk.com/robot/send?access_token=4746ec88a47e3b0e03ef47f4e59380d3bfe3939283bba95e1ae75300687cb4e5' -H "Content-type: application/json" -X POST \
+      -d '{"msgtype": "text",
+      "text": {"content": "charts-service:ci
+        tags: '$SERVICE_VERSION'
+        message: '"$(git log --oneline -1)"'
+        Author: '"$(git log --pretty=format:"%an" -1)"'
+        deploy: '${BUILD_STATUS}'  '"$FAILURE_MESSAGE"' "},
+      "at": {"atMobiles": ["1560671****"],
+      "isAtAll": false}}' '''
+    }
+  }
+}
